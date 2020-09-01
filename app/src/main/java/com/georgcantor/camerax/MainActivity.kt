@@ -2,15 +2,24 @@ package com.georgcantor.camerax
 
 import android.Manifest
 import android.content.pm.PackageManager.PERMISSION_GRANTED
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import android.widget.Toast.LENGTH_SHORT
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
+import java.lang.System.currentTimeMillis
+import java.text.SimpleDateFormat
+import java.util.Locale.US
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -61,9 +70,54 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor.shutdown()
     }
 
-    private fun takePhoto() {}
+    private fun takePhoto() {
+        val imageCapture = imageCapture ?: return
 
-    private fun startCamera() {}
+        val photoFile = File(outputDirectory, SimpleDateFormat(FILENAME_FORMAT, US).format(currentTimeMillis()) + ".jpg")
+
+        val options = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        imageCapture.takePicture(
+            options,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onError(e: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed: ${e.message}", e)
+                }
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val savedUri = Uri.fromFile(photoFile)
+                    val msg = "Photo capture succeeded: $savedUri"
+                    Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
+                    Log.d(TAG, msg)
+                }
+            })
+    }
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(viewFinder.createSurfaceProvider())
+            }
+
+            imageCapture = ImageCapture.Builder()
+                .build()
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+            } catch (e: Exception) {
+                Log.e(TAG, "Use case binding failed", e)
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(baseContext, it) == PERMISSION_GRANTED
